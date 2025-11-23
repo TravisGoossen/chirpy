@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"sync/atomic"
 )
 
@@ -51,15 +53,30 @@ func main() {
 	server.ListenAndServe()
 }
 
-func writeJSONResponse(w http.ResponseWriter, statusCode int, data any) {
-	dataJSON, err := json.Marshal(data)
+func writeJSONResponse(w http.ResponseWriter, statusCode int, payload any) {
+	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		http.Error(w, `{"error":"Something went wrong"}`, 500)
+		http.Error(w, "error: Something went wrong", 500)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	w.Write(dataJSON)
+	w.Write(payloadJSON)
+}
+
+func checkProfanity(text string) (string, bool) {
+	profanityFound := false
+	badWords := []string{"kerfuffle", "sharbert", "fornax"}
+	words := strings.Split(text, " ")
+	fmt.Println("Checking for bad words...")
+	for i, word := range words {
+		if slices.Contains(badWords, strings.ToLower(word)) {
+			words[i] = "****"
+			profanityFound = true
+			fmt.Println("FOUND")
+		}
+	}
+	return strings.Join(words, " "), profanityFound
 }
 
 func ReadinessEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +90,9 @@ func validateChirpEndpoint(w http.ResponseWriter, r *http.Request) {
 		Body string `json:"body"`
 	}
 	type responseBody struct {
-		Valid bool   `json:"valid,omitempty"`
-		Error string `json:"error,omitempty"`
+		Valid        bool   `json:"valid,omitempty"`
+		Error        string `json:"error,omitempty"`
+		Cleaned_body string `json:"cleaned_body,omitempty"`
 	}
 
 	reqBody := requestBody{}
@@ -94,6 +112,12 @@ func validateChirpEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respBody.Valid = true
+	if cleanedText, profanityFound := checkProfanity(reqBody.Body); profanityFound {
+		respBody.Cleaned_body = cleanedText
+		writeJSONResponse(w, 200, respBody)
+		return
+	}
+
+	respBody.Cleaned_body = reqBody.Body
 	writeJSONResponse(w, 200, respBody)
 }
