@@ -1,29 +1,40 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
+
+	"github.com/TravisGoossen/chirpy/internal/database"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
-type apiConfig struct {
+type ApiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
+	platform       string
 }
 
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (cfg *apiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
+func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 	currentHits := cfg.fileserverHits.Load()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf(`
 	<html>
   <body>
@@ -34,12 +45,32 @@ func (cfg *apiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 	`, currentHits)))
 }
 
-func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
-	cfg.fileserverHits.Store(0)
+func (cfg *ApiConfig) resetAllUsers(w http.ResponseWriter, r *http.Request) {
+	if cfg.platform != "dev" {
+		http.Error(w, "This is only accessible in a developer environment", http.StatusForbidden)
+		return
+	}
+
+	err := cfg.dbQueries.DeleteUsers(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to delete all users. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("All rows in 'users' table successfully deleted\n"))
 }
 
 func main() {
-	apiCfg := apiConfig{}
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		fmt.Printf("Failed to connect to DB. err: %v", err)
+	}
+
+	apiCfg := ApiConfig{
+		dbQueries: database.New(db),
+		platform:  os.Getenv("PLATFORM"),
+	}
 	mux := http.NewServeMux()
 	server := http.Server{
 		Addr:    ":8080",
@@ -48,8 +79,9 @@ func main() {
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
 	mux.HandleFunc("GET /api/healthz", ReadinessEndpoint)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.displayMetrics)
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
-	mux.HandleFunc("POST /api/validate_chirp", validateChirpEndpoint)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
+	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
+	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
 	server.ListenAndServe()
 }
 
@@ -68,12 +100,10 @@ func checkProfanity(text string) (string, bool) {
 	profanityFound := false
 	badWords := []string{"kerfuffle", "sharbert", "fornax"}
 	words := strings.Split(text, " ")
-	fmt.Println("Checking for bad words...")
 	for i, word := range words {
 		if slices.Contains(badWords, strings.ToLower(word)) {
 			words[i] = "****"
 			profanityFound = true
-			fmt.Println("FOUND")
 		}
 	}
 	return strings.Join(words, " "), profanityFound
@@ -81,43 +111,107 @@ func checkProfanity(text string) (string, bool) {
 
 func ReadinessEndpoint(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-func validateChirpEndpoint(w http.ResponseWriter, r *http.Request) {
+// Returns the original OR newly cleaned chirp, and an error
+func validateChirp(chirp string) (string, error) {
+
+	if len(chirp) > 140 {
+		return chirp, errors.New("chirp is too long")
+	}
+
+	if cleanedChirp, profanityFound := checkProfanity(chirp); profanityFound {
+		return cleanedChirp, nil
+	}
+
+	return chirp, nil
+}
+
+func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
+	type User struct {
+		ID        uuid.UUID `json:"id,omitempty"`
+		CreatedAt time.Time `json:"created_at,omitempty"`
+		UpdatedAt time.Time `json:"updated_at,omitempty"`
+		Email     string    `json:"email,omitempty"`
+	}
+
+	req := User{}
+	decoder := json.NewDecoder(r.Body)
+	decoder.Decode(&req)
+
+	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), req.Email)
+	if err != nil {
+		writeJSONResponse(w, http.StatusInternalServerError, fmt.Sprintf("failed to create user. error: %v", err))
+		return
+	}
+
+	user := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+
+	writeJSONResponse(w, http.StatusCreated, user)
+}
+
+func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Request) {
 	type requestBody struct {
-		Body string `json:"body"`
+		Body    string `json:"body"`
+		User_id string `json:"user_id"`
 	}
 	type responseBody struct {
-		Valid        bool   `json:"valid,omitempty"`
-		Error        string `json:"error,omitempty"`
-		Cleaned_body string `json:"cleaned_body,omitempty"`
+		Id         string `json:"id"`
+		Created_at string `json:"created_at"`
+		Updated_at string `json:"updated_at"`
+		Body       string `json:"body"`
+		User_id    string `json:"user_id"`
 	}
-
-	reqBody := requestBody{}
-	respBody := responseBody{}
-
+	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&reqBody)
+	err := decoder.Decode(&req)
 	if err != nil {
-		respBody.Error = "Something went wrong"
-		writeJSONResponse(w, 500, respBody)
+		http.Error(w, fmt.Sprintf("failed to create new chirp. error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if len(reqBody.Body) > 140 {
-		respBody.Error = "Chirp is too long"
-		writeJSONResponse(w, 400, respBody)
+	chirp, err := validateChirp(req.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if cleanedText, profanityFound := checkProfanity(reqBody.Body); profanityFound {
-		respBody.Cleaned_body = cleanedText
-		writeJSONResponse(w, 200, respBody)
+	userIdUUID, err := uuid.Parse(req.User_id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create new chirp. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	chirpStruct, err := cfg.dbQueries.CreateChirp(
+		r.Context(),
+		database.CreateChirpParams{
+			Body: chirp,
+			UserID: uuid.NullUUID{
+				UUID:  userIdUUID,
+				Valid: true,
+			},
+		},
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create new chirp. error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	respBody.Cleaned_body = reqBody.Body
-	writeJSONResponse(w, 200, respBody)
+	writeJSONResponse(
+		w,
+		http.StatusCreated,
+		responseBody{
+			Id:         chirpStruct.ID.String(),
+			Created_at: chirpStruct.CreatedAt.String(),
+			Updated_at: chirpStruct.UpdatedAt.String(),
+			Body:       chirpStruct.Body,
+			User_id:    chirpStruct.UserID.UUID.String(),
+		},
+	)
 }

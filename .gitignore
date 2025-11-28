@@ -1,2 +1,2 @@
 requests.http
-db_link.txt
+.env
