@@ -18,6 +18,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// This struct is identical to database.Chirp except that it has proper json tags needed to make the right http responses
+type chirpResponse struct {
+	Id         string `json:"id"`
+	Created_at string `json:"created_at"`
+	Updated_at string `json:"updated_at"`
+	Body       string `json:"body"`
+	User_id    string `json:"user_id"`
+}
+
 type ApiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
@@ -82,6 +91,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
 	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetSpecificChirp)
 	server.ListenAndServe()
 }
 
@@ -214,4 +225,47 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 			User_id:    chirpStruct.UserID.UUID.String(),
 		},
 	)
+}
+
+func (cfg *ApiConfig) GetSpecificChirp(w http.ResponseWriter, r *http.Request) {
+	chirpIDString := r.PathValue("chirpID")
+	chirpIDUUID, err := uuid.Parse(chirpIDString)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get specific chirp. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	chirp, err := cfg.dbQueries.GetSpecificChirp(r.Context(), chirpIDUUID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("chirp does not exist. error: %v", err), http.StatusNotFound)
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, convertChirpStruct(chirp))
+}
+
+func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.dbQueries.GetChirps(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to retrieve all chirps. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
+
+}
+
+func convertChirpStruct(chirp database.Chirp) chirpResponse {
+	return chirpResponse{
+		Id:         chirp.ID.String(),
+		Created_at: chirp.CreatedAt.String(),
+		Updated_at: chirp.UpdatedAt.String(),
+		Body:       chirp.Body,
+		User_id:    chirp.UserID.UUID.String(),
+	}
+}
+
+func convertChirpSlice(chirps []database.Chirp) []chirpResponse {
+	newSlice := make([]chirpResponse, len(chirps))
+	for i, v := range chirps {
+		newSlice[i] = convertChirpStruct(v)
+	}
+	return newSlice
 }
