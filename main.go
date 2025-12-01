@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TravisGoossen/chirpy/internal/auth"
 	"github.com/TravisGoossen/chirpy/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -25,6 +26,14 @@ type chirpResponse struct {
 	Updated_at string `json:"updated_at"`
 	Body       string `json:"body"`
 	User_id    string `json:"user_id"`
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Email     string    `json:"email,omitempty"`
+	Password  string    `json:"password,omitempty"`
 }
 
 type ApiConfig struct {
@@ -54,20 +63,6 @@ func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 	`, currentHits)))
 }
 
-func (cfg *ApiConfig) resetAllUsers(w http.ResponseWriter, r *http.Request) {
-	if cfg.platform != "dev" {
-		http.Error(w, "This is only accessible in a developer environment", http.StatusForbidden)
-		return
-	}
-
-	err := cfg.dbQueries.DeleteUsers(r.Context())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to delete all users. error: %v", err), http.StatusInternalServerError)
-		return
-	}
-	w.Write([]byte("All rows in 'users' table successfully deleted\n"))
-}
-
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -90,6 +85,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.displayMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
 	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
+	mux.HandleFunc("POST /api/login", apiCfg.login)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetSpecificChirp)
@@ -141,20 +137,29 @@ func validateChirp(chirp string) (string, error) {
 }
 
 func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
-	type User struct {
-		ID        uuid.UUID `json:"id,omitempty"`
-		CreatedAt time.Time `json:"created_at,omitempty"`
-		UpdatedAt time.Time `json:"updated_at,omitempty"`
-		Email     string    `json:"email,omitempty"`
-	}
-
 	req := User{}
 	decoder := json.NewDecoder(r.Body)
 	decoder.Decode(&req)
 
-	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), req.Email)
+	if req.Password == "" {
+		http.Error(w, "failed to create user. no password provided.", http.StatusBadRequest)
+		return
+	}
+	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeJSONResponse(w, http.StatusInternalServerError, fmt.Sprintf("failed to create user. error: %v", err))
+		http.Error(w, fmt.Sprintf("failed to create user. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	dbUser, err := cfg.dbQueries.CreateUser(
+		r.Context(),
+		database.CreateUserParams{
+			Email:          req.Email,
+			HashedPassword: hash,
+		},
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create user. error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -166,6 +171,54 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSONResponse(w, http.StatusCreated, user)
+}
+
+func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
+	req := User{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	dbUser, err := cfg.dbQueries.Login(r.Context(), req.Email)
+	if err != nil {
+		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
+		return
+	}
+	match, err := auth.CheckPasswordHash(req.Password, dbUser.HashedPassword)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if !match {
+		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
+		return
+	}
+
+	responseUser := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+	writeJSONResponse(w, http.StatusOK, responseUser)
+}
+
+func (cfg *ApiConfig) resetAllUsers(w http.ResponseWriter, r *http.Request) {
+	if cfg.platform != "dev" {
+		http.Error(w, "This is only accessible in a developer environment", http.StatusForbidden)
+		return
+	}
+
+	err := cfg.dbQueries.DeleteUsers(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to delete all users. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("All rows in 'users' table successfully deleted\n"))
 }
 
 func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Request) {
