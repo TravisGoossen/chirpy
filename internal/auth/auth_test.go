@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +148,36 @@ func TestJWTWrongSecret(t *testing.T) {
 		}
 		if uuid == c.userID {
 			t.Errorf("Failed in TestJWTWrongSecret(uuid check) case #%v. UUID does not match userID\n", i)
+		}
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	header1 := http.Header{
+		"Authorization": []string{"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"},
+	}
+	header2 := http.Header{}
+	header2.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
+	cases := []struct {
+		headers       http.Header
+		strippedToken string
+	}{
+		{
+			headers: header1,
+		},
+		{
+			headers: header2,
+		},
+	}
+
+	for i, c := range cases {
+		token, err := GetBearerToken(c.headers)
+		if err != nil {
+			t.Errorf("TestGearBearerToken failed on case #%v. error: %v", i, err)
+		}
+		strippedToken, _ := strings.CutPrefix(c.headers.Get("Authorization"), "Bearer ")
+		if token != strippedToken {
+			t.Errorf("TestGearBearerToken failed on case #%v. Token was not the expected token", i)
 		}
 	}
 }

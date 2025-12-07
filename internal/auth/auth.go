@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -53,4 +56,14 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	_, ok := headers["Authorization"]
+	if !ok {
+		return "", fmt.Errorf("the 'authorization' header doesn't exist in the http.header")
+	}
+	token := headers.Get("Authorization")
+	rawToken, _ := strings.CutPrefix(token, "Bearer ")
+	return rawToken, nil
 }

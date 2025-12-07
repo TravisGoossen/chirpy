@@ -28,18 +28,11 @@ type chirpResponse struct {
 	User_id    string `json:"user_id"`
 }
 
-type User struct {
-	ID        uuid.UUID `json:"id,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
-	Email     string    `json:"email,omitempty"`
-	Password  string    `json:"password,omitempty"`
-}
-
 type ApiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	JWTSecret      string
 }
 
 func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -65,6 +58,7 @@ func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	godotenv.Load()
+	JWTSecret := os.Getenv("JWT_SECRET")
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -74,6 +68,7 @@ func main() {
 	apiCfg := ApiConfig{
 		dbQueries: database.New(db),
 		platform:  os.Getenv("PLATFORM"),
+		JWTSecret: JWTSecret,
 	}
 	mux := http.NewServeMux()
 	server := http.Server{
@@ -137,6 +132,13 @@ func validateChirp(chirp string) (string, error) {
 }
 
 func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
+	type User struct {
+		ID        uuid.UUID `json:"id,omitempty"`
+		CreatedAt time.Time `json:"created_at,omitempty"`
+		UpdatedAt time.Time `json:"updated_at,omitempty"`
+		Email     string    `json:"email"`
+		Password  string    `json:"password,omitempty"`
+	}
 	req := User{}
 	decoder := json.NewDecoder(r.Body)
 	decoder.Decode(&req)
@@ -174,12 +176,27 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 }
 
 func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
-	req := User{}
+	type requestBody struct {
+		Email              string `json:"email"`
+		Password           string `json:"password"`
+		Expires_in_seconds int    `json:"expires_in_seconds,omitempty"`
+	}
+	type responseBody struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+		Token     string    `json:"token"`
+	}
+	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if req.Expires_in_seconds == 0 || req.Expires_in_seconds > 3600 {
+		req.Expires_in_seconds = 3600
 	}
 
 	dbUser, err := cfg.dbQueries.Login(r.Context(), req.Email)
@@ -197,12 +214,18 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
 		return
 	}
+	token, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret, time.Duration(req.Expires_in_seconds)*time.Second)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-	responseUser := User{
+	responseUser := responseBody{
 		ID:        dbUser.ID,
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email:     dbUser.Email,
+		Token:     token,
 	}
 	writeJSONResponse(w, http.StatusOK, responseUser)
 }
@@ -237,7 +260,18 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create new chirp. error: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("failed to create new chirp1. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create new chirp2. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	JWTUUID, err := auth.ValidateJWT(token, cfg.JWTSecret)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create new chirp3. error: %v", err), http.StatusUnauthorized)
 		return
 	}
 
@@ -247,17 +281,12 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	userIdUUID, err := uuid.Parse(req.User_id)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create new chirp. error: %v", err), http.StatusInternalServerError)
-		return
-	}
 	chirpStruct, err := cfg.dbQueries.CreateChirp(
 		r.Context(),
 		database.CreateChirpParams{
 			Body: chirp,
 			UserID: uuid.NullUUID{
-				UUID:  userIdUUID,
+				UUID:  JWTUUID,
 				Valid: true,
 			},
 		},
