@@ -81,6 +81,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
 	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
 	mux.HandleFunc("POST /api/login", apiCfg.login)
+	mux.HandleFunc("POST /api/refresh", apiCfg.refreshEndpoint)
+	mux.HandleFunc("POST /api/revoke", apiCfg.revokeRefreshToken)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetSpecificChirp)
@@ -177,16 +179,16 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 
 func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	type requestBody struct {
-		Email              string `json:"email"`
-		Password           string `json:"password"`
-		Expires_in_seconds int    `json:"expires_in_seconds,omitempty"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	type responseBody struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
-		Token     string    `json:"token"`
+		ID           uuid.UUID `json:"id"`
+		CreatedAt    time.Time `json:"created_at"`
+		UpdatedAt    time.Time `json:"updated_at"`
+		Email        string    `json:"email"`
+		Token        string    `json:"token"`
+		RefreshToken string    `json:"refresh_token"`
 	}
 	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
@@ -194,9 +196,6 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
 		return
-	}
-	if req.Expires_in_seconds == 0 || req.Expires_in_seconds > 3600 {
-		req.Expires_in_seconds = 3600
 	}
 
 	dbUser, err := cfg.dbQueries.Login(r.Context(), req.Email)
@@ -214,20 +213,70 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
 		return
 	}
-	token, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret, time.Duration(req.Expires_in_seconds)*time.Second)
+	token, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create refresh token. error: %v", err), http.StatusInternalServerError)
+	}
+	cfg.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     refreshToken,
+		UserID:    dbUser.ID,
+		ExpiresAt: time.Now().Add(1440 * time.Hour),
+	})
+
 	responseUser := responseBody{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
-		Token:     token,
+		ID:           dbUser.ID,
+		CreatedAt:    dbUser.CreatedAt,
+		UpdatedAt:    dbUser.UpdatedAt,
+		Email:        dbUser.Email,
+		Token:        token,
+		RefreshToken: refreshToken,
 	}
 	writeJSONResponse(w, http.StatusOK, responseUser)
+}
+
+func (cfg *ApiConfig) refreshEndpoint(w http.ResponseWriter, r *http.Request) {
+	type responseBody struct {
+		Token string `json:"token"`
+	}
+	refToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get bearer token. error: %v", err), http.StatusBadRequest)
+		return
+	}
+	userID, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), refToken)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get refresh token. error: %v", err), http.StatusUnauthorized)
+		return
+	}
+	accToken, err := auth.MakeJWT(userID, cfg.JWTSecret)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	response := responseBody{
+		Token: accToken,
+	}
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+func (cfg *ApiConfig) revokeRefreshToken(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get bearer token. error: %v", err), http.StatusBadRequest)
+		return
+	}
+	err = cfg.dbQueries.RevokeRefreshToken(r.Context(), token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to revoke refresh token. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSONResponse(w, http.StatusNoContent, nil)
 }
 
 func (cfg *ApiConfig) resetAllUsers(w http.ResponseWriter, r *http.Request) {
@@ -284,11 +333,8 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 	chirpStruct, err := cfg.dbQueries.CreateChirp(
 		r.Context(),
 		database.CreateChirpParams{
-			Body: chirp,
-			UserID: uuid.NullUUID{
-				UUID:  JWTUUID,
-				Valid: true,
-			},
+			Body:   chirp,
+			UserID: JWTUUID,
 		},
 	)
 	if err != nil {
@@ -304,7 +350,7 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 			Created_at: chirpStruct.CreatedAt.String(),
 			Updated_at: chirpStruct.UpdatedAt.String(),
 			Body:       chirpStruct.Body,
-			User_id:    chirpStruct.UserID.UUID.String(),
+			User_id:    chirpStruct.UserID.String(),
 		},
 	)
 }
@@ -340,7 +386,7 @@ func convertChirpStruct(chirp database.Chirp) chirpResponse {
 		Created_at: chirp.CreatedAt.String(),
 		Updated_at: chirp.UpdatedAt.String(),
 		Body:       chirp.Body,
-		User_id:    chirp.UserID.UUID.String(),
+		User_id:    chirp.UserID.String(),
 	}
 }
 

@@ -181,3 +181,13 @@ func TestGetBearerToken(t *testing.T) {
 		}
 	}
 }
+
+func TestMakeRefreshToken(t *testing.T) {
+	token, err := MakeRefreshToken()
+	if err != nil {
+		t.FailNow()
+	}
+	if len(token) != 64 {
+		t.FailNow()
+	}
+}
