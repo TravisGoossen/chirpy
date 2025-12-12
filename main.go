@@ -80,6 +80,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.displayMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
 	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
+	mux.HandleFunc("PUT /api/users", apiCfg.updateEmailPasswordEndpoint)
 	mux.HandleFunc("POST /api/login", apiCfg.login)
 	mux.HandleFunc("POST /api/refresh", apiCfg.refreshEndpoint)
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeRefreshToken)
@@ -236,6 +237,57 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		Email:        dbUser.Email,
 		Token:        token,
 		RefreshToken: refreshToken,
+	}
+	writeJSONResponse(w, http.StatusOK, responseUser)
+}
+
+func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http.Request) {
+	type User struct {
+		ID        uuid.UUID `json:"id,omitempty"`
+		CreatedAt time.Time `json:"created_at,omitempty"`
+		UpdatedAt time.Time `json:"updated_at,omitempty"`
+		Email     string    `json:"email"`
+		Password  string    `json:"password,omitempty"`
+	}
+	reqUser := User{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&reqUser)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to decode request body. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to retrieve token. error: %v", err), http.StatusUnauthorized)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.JWTSecret)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("jwt validation failed. error: %v", err), http.StatusUnauthorized)
+		return
+	}
+	hashedPass, err := auth.HashPassword(reqUser.Password)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to has password. error: %v", err), http.StatusBadGateway)
+		return
+	}
+	cfg.dbQueries.UpdateEmailPassword(
+		r.Context(),
+		database.UpdateEmailPasswordParams{
+			ID:             userID,
+			Email:          reqUser.Email,
+			HashedPassword: hashedPass,
+		})
+	dbUser, err := cfg.dbQueries.GetUserInfo(r.Context(), userID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get user info. error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	responseUser := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
 	}
 	writeJSONResponse(w, http.StatusOK, responseUser)
 }
