@@ -89,6 +89,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getSpecificChirp)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaWebHooks)
 	server.ListenAndServe()
 }
 
@@ -138,11 +139,12 @@ func validateChirp(chirp string) (string, error) {
 
 func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
 	type User struct {
-		ID        uuid.UUID `json:"id,omitempty"`
-		CreatedAt time.Time `json:"created_at,omitempty"`
-		UpdatedAt time.Time `json:"updated_at,omitempty"`
-		Email     string    `json:"email"`
-		Password  string    `json:"password,omitempty"`
+		ID          uuid.UUID `json:"id,omitempty"`
+		CreatedAt   time.Time `json:"created_at,omitempty"`
+		UpdatedAt   time.Time `json:"updated_at,omitempty"`
+		Email       string    `json:"email"`
+		Password    string    `json:"password,omitempty"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	req := User{}
 	decoder := json.NewDecoder(r.Body)
@@ -171,10 +173,11 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 	}
 
 	user := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 	}
 
 	writeJSONResponse(w, http.StatusCreated, user)
@@ -190,6 +193,7 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		CreatedAt    time.Time `json:"created_at"`
 		UpdatedAt    time.Time `json:"updated_at"`
 		Email        string    `json:"email"`
+		IsChirpyRed  bool      `json:"is_chirpy_red"`
 		Token        string    `json:"token"`
 		RefreshToken string    `json:"refresh_token"`
 	}
@@ -237,6 +241,7 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    dbUser.CreatedAt,
 		UpdatedAt:    dbUser.UpdatedAt,
 		Email:        dbUser.Email,
+		IsChirpyRed:  dbUser.IsChirpyRed,
 		Token:        token,
 		RefreshToken: refreshToken,
 	}
@@ -245,11 +250,12 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http.Request) {
 	type User struct {
-		ID        uuid.UUID `json:"id,omitempty"`
-		CreatedAt time.Time `json:"created_at,omitempty"`
-		UpdatedAt time.Time `json:"updated_at,omitempty"`
-		Email     string    `json:"email"`
-		Password  string    `json:"password,omitempty"`
+		ID          uuid.UUID `json:"id,omitempty"`
+		CreatedAt   time.Time `json:"created_at,omitempty"`
+		UpdatedAt   time.Time `json:"updated_at,omitempty"`
+		Email       string    `json:"email"`
+		Password    string    `json:"password,omitempty"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	reqUser := User{}
 	decoder := json.NewDecoder(r.Body)
@@ -286,10 +292,11 @@ func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http
 		return
 	}
 	responseUser := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 	}
 	writeJSONResponse(w, http.StatusOK, responseUser)
 }
@@ -476,6 +483,40 @@ func (cfg *ApiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusNoContent, nil)
+}
+
+func (cfg *ApiConfig) polkaWebHooks(w http.ResponseWriter, r *http.Request) {
+	type requestBody struct {
+		Event string `json:"event"`
+		Data  struct {
+			User_id string `json:"user_id"`
+		} `json:"data"`
+	}
+	req := requestBody{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&req)
+	if err != nil {
+		log.Printf("failed to decode request body. %v", err)
+		http.Error(w, "web hook failed", http.StatusInternalServerError)
+		return
+	}
+	if req.Event != "user.upgraded" {
+		http.Error(w, "unexpected event", http.StatusNoContent)
+		return
+	}
+	userIDUUID, err := uuid.Parse(req.Data.User_id)
+	if err != nil {
+		log.Printf("failed to parse user ID from request: %v", err)
+		http.Error(w, "bad user id", http.StatusBadRequest)
+		return
+	}
+	_, err = cfg.dbQueries.UpgradeUserRed(r.Context(), userIDUUID)
+	if err != nil {
+		log.Printf("failed to upgrade user to red: %v", err)
+		http.Error(w, "user id not found", http.StatusNotFound)
+		return
+	}
+	writeJSONResponse(w, http.StatusNoContent, "")
 }
 
 func convertChirpStruct(chirp database.Chirp) chirpResponse {

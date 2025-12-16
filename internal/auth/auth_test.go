@@ -47,37 +47,32 @@ func TestJWTValidAndExpired(t *testing.T) {
 	cases := []struct {
 		userID       uuid.UUID
 		tokenSecret  string
-		expiresIn    time.Duration
 		expectedFail bool
 	}{
 		{
 			userID:       uuid.New(),
 			tokenSecret:  "secret",
-			expiresIn:    time.Duration(time.Second * 3),
 			expectedFail: false,
 		},
 		{
 			userID:       uuid.New(),
 			tokenSecret:  "lieb!love!amore!haaaaarrrrrrrr",
-			expiresIn:    time.Duration(time.Second * 1),
 			expectedFail: false,
 		},
 		{
 			userID:       uuid.New(),
 			tokenSecret:  "LETSFAILTHISTESTWOOOHOOOO",
-			expiresIn:    time.Duration(time.Millisecond * 500),
 			expectedFail: true,
 		},
 		{
 			userID:       uuid.New(),
 			tokenSecret:  "IsthisTaking too longgg?",
-			expiresIn:    time.Duration(time.Second * 2),
 			expectedFail: true,
 		},
 	}
 
 	for i, c := range cases {
-		token, err := MakeJWT(c.userID, c.tokenSecret, c.expiresIn)
+		token, err := MakeJWT(c.userID, c.tokenSecret)
 		if err != nil {
 			t.Errorf("Failed in TestJWT(MakeJWT) case #%v. error: %v\n", i, err)
 		}
@@ -137,7 +132,7 @@ func TestJWTWrongSecret(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		token, err := MakeJWT(c.userID, c.tokenSecret, c.expiresIn)
+		token, err := MakeJWT(c.userID, c.tokenSecret)
 		if err != nil {
 			t.Errorf("Failed in TestJWTWrongSecret(MakeJWT) case #%v. error: %v\n", i, err)
 		}
