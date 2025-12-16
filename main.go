@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -86,7 +87,8 @@ func main() {
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeRefreshToken)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
-	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetSpecificChirp)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getSpecificChirp)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
 	server.ListenAndServe()
 }
 
@@ -407,16 +409,18 @@ func (cfg *ApiConfig) createNewChirpEndpoint(w http.ResponseWriter, r *http.Requ
 	)
 }
 
-func (cfg *ApiConfig) GetSpecificChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *ApiConfig) getSpecificChirp(w http.ResponseWriter, r *http.Request) {
 	chirpIDString := r.PathValue("chirpID")
 	chirpIDUUID, err := uuid.Parse(chirpIDString)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get specific chirp. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to parse chirpID %v: %v", chirpIDString, err)
+		http.Error(w, "invalid chirp ID", http.StatusBadRequest)
 		return
 	}
 	chirp, err := cfg.dbQueries.GetSpecificChirp(r.Context(), chirpIDUUID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("chirp does not exist. error: %v", err), http.StatusNotFound)
+		log.Printf("failed to find chirpID in DB :%v: %v", chirpIDString, err)
+		http.Error(w, "chirp not found", http.StatusNotFound)
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, convertChirpStruct(chirp))
@@ -429,7 +433,49 @@ func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
+}
 
+func (cfg *ApiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Printf("failed to get bearer token on deleteChirp. error: %v", err)
+		http.Error(w, "unathorized access", http.StatusUnauthorized)
+		return
+	}
+	userUUID, err := auth.ValidateJWT(token, cfg.JWTSecret)
+	if err != nil {
+		log.Printf("failed to validate JWT %v. %v", userUUID.String(), err)
+		http.Error(w, "unathorized access", http.StatusUnauthorized)
+		return
+	}
+
+	ChirpIDString := r.PathValue("chirpID")
+	ChirpIDUUID, err := uuid.Parse(ChirpIDString)
+	if err != nil {
+		log.Printf("failed to parse chirpID %v: %v", ChirpIDString, err)
+		http.Error(w, "invalid chirp ID", http.StatusBadRequest)
+		return
+	}
+	chirp, err := cfg.dbQueries.GetSpecificChirp(r.Context(), ChirpIDUUID)
+	if err != nil {
+		log.Printf("failed to find chirp %v: %v", ChirpIDString, err)
+		http.Error(w, "chirp not found", http.StatusNotFound)
+		return
+	}
+
+	if userUUID != chirp.UserID {
+		http.Error(w, "unathorized access", http.StatusForbidden)
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirp(r.Context(), ChirpIDUUID)
+	if err != nil {
+		log.Printf("failed to delete chirp %v: %v", ChirpIDString, err)
+		http.Error(w, "failed to delete chirp", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(w, http.StatusNoContent, nil)
 }
 
 func convertChirpStruct(chirp database.Chirp) chirpResponse {
