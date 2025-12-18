@@ -186,3 +186,37 @@ func TestMakeRefreshToken(t *testing.T) {
 		t.FailNow()
 	}
 }
+
+func TestGetAPIKey(t *testing.T) {
+	cases := []struct {
+		fullKey string
+		key     string
+	}{
+		{
+			fullKey: "ApiKey f271c81ff7084ee5b99a5091b42d486e",
+			key:     "f271c81ff7084ee5b99a5091b42d486e",
+		},
+		{
+			fullKey: "ApiKey 123098123098123098213092130923",
+			key:     "123098123098123098213092130923",
+		},
+		{
+			fullKey: "ApiKey thisismykey",
+			key:     "thisismykey",
+		},
+	}
+
+	for _, i := range cases {
+		header := http.Header{}
+		header.Add("Authorization", i.fullKey)
+		key, err := GetAPIKey(header)
+		t.Logf("fullkey = %v", header["Authorization"])
+		t.Logf("key = %v", key)
+		if err != nil {
+			t.Errorf("err fail: %v", err)
+		}
+		if key != i.key {
+			t.Errorf("key fail: %v", err)
+		}
+	}
+}

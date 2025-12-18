@@ -79,3 +79,13 @@ func GetBearerToken(headers http.Header) (string, error) {
 	rawToken, _ := strings.CutPrefix(token, "Bearer ")
 	return rawToken, nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	_, ok := headers["Authorization"]
+	if !ok {
+		return "", fmt.Errorf("the 'authorization' header doesn't exist in the http.header")
+	}
+	key := headers.Get("Authorization")
+	rawKey, _ := strings.CutPrefix(key, "ApiKey ")
+	return rawKey, nil
+}

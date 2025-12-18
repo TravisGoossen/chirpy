@@ -34,32 +34,13 @@ type ApiConfig struct {
 	dbQueries      *database.Queries
 	platform       string
 	JWTSecret      string
-}
-
-func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
-	currentHits := cfg.fileserverHits.Load()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`
-	<html>
-  <body>
-    <h1>Welcome, Chirpy Admin</h1>
-    <p>Chirpy has been visited %d times!</p>
-  </body>
-</html>
-	`, currentHits)))
+	PolkaAPIKey    string
 }
 
 func main() {
 	godotenv.Load()
 	JWTSecret := os.Getenv("JWT_SECRET")
+	PolkaAPIKey := os.Getenv("POLKA_KEY")
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -67,9 +48,10 @@ func main() {
 	}
 
 	apiCfg := ApiConfig{
-		dbQueries: database.New(db),
-		platform:  os.Getenv("PLATFORM"),
-		JWTSecret: JWTSecret,
+		dbQueries:   database.New(db),
+		platform:    os.Getenv("PLATFORM"),
+		JWTSecret:   JWTSecret,
+		PolkaAPIKey: PolkaAPIKey,
 	}
 	mux := http.NewServeMux()
 	server := http.Server{
@@ -135,6 +117,27 @@ func validateChirp(chirp string) (string, error) {
 	}
 
 	return chirp, nil
+}
+
+func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
+	currentHits := cfg.fileserverHits.Load()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`
+	<html>
+  <body>
+    <h1>Welcome, Chirpy Admin</h1>
+    <p>Chirpy has been visited %d times!</p>
+  </body>
+</html>
+	`, currentHits)))
 }
 
 func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -486,6 +489,16 @@ func (cfg *ApiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *ApiConfig) polkaWebHooks(w http.ResponseWriter, r *http.Request) {
+	APIKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		log.Printf("failed to get api key from polkaWebHooks endpoint: %v", err)
+		http.Error(w, "no API key provided", http.StatusUnauthorized)
+		return
+	}
+	if APIKey != cfg.PolkaAPIKey {
+		http.Error(w, "invalid API key", http.StatusUnauthorized)
+		return
+	}
 	type requestBody struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -494,7 +507,7 @@ func (cfg *ApiConfig) polkaWebHooks(w http.ResponseWriter, r *http.Request) {
 	}
 	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&req)
+	err = decoder.Decode(&req)
 	if err != nil {
 		log.Printf("failed to decode request body. %v", err)
 		http.Error(w, "web hook failed", http.StatusInternalServerError)
