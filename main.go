@@ -437,12 +437,32 @@ func (cfg *ApiConfig) getSpecificChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
+	authorID := r.URL.Query().Get("author_id")
+	if len(authorID) > 0 {
+		authorIDUUID, err := uuid.Parse(authorID)
+		if err != nil {
+			log.Printf("failed to parse author as uuid: %v", err)
+			http.Error(w, "invalid author id", http.StatusBadRequest)
+			return
+		}
+		chirps, err := cfg.dbQueries.GetChirpsByAuthor(r.Context(), authorIDUUID)
+		if err != nil {
+			log.Printf("DB query GetChirpsByAuthor failed: %v", err)
+			http.Error(w, "no chirps found from this author", http.StatusBadRequest)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
+		return
+	}
+
 	chirps, err := cfg.dbQueries.GetChirps(r.Context())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to retrieve all chirps. error: %v", err), http.StatusInternalServerError)
+		log.Printf("DB query GetChirps failed: %v", err)
+		http.Error(w, "failed to retrieve chirps", http.StatusBadRequest)
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
+
 }
 
 func (cfg *ApiConfig) deleteChirp(w http.ResponseWriter, r *http.Request) {
