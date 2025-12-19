@@ -438,6 +438,8 @@ func (cfg *ApiConfig) getSpecificChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 	authorID := r.URL.Query().Get("author_id")
+	sortBy := r.URL.Query().Get("sort")
+
 	if len(authorID) > 0 {
 		authorIDUUID, err := uuid.Parse(authorID)
 		if err != nil {
@@ -451,6 +453,9 @@ func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no chirps found from this author", http.StatusBadRequest)
 			return
 		}
+		if sortBy == "desc" {
+			sortChirps(chirps, "desc")
+		}
 		writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
 		return
 	}
@@ -460,6 +465,9 @@ func (cfg *ApiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DB query GetChirps failed: %v", err)
 		http.Error(w, "failed to retrieve chirps", http.StatusBadRequest)
 		return
+	}
+	if sortBy == "desc" {
+		sortChirps(chirps, "desc")
 	}
 	writeJSONResponse(w, http.StatusOK, convertChirpSlice(chirps))
 
@@ -568,4 +576,29 @@ func convertChirpSlice(chirps []database.Chirp) []chirpResponse {
 		newSlice[i] = convertChirpStruct(v)
 	}
 	return newSlice
+}
+
+func sortChirps(chirps []database.Chirp, order string) []database.Chirp {
+	if order == "desc" {
+		slices.SortFunc(chirps, func(a, b database.Chirp) int {
+			if a.CreatedAt.Compare(b.CreatedAt) == -1 {
+				return 1
+			}
+			if a.CreatedAt.Compare(b.CreatedAt) == 1 {
+				return -1
+			}
+			return 0
+		})
+	} else {
+		slices.SortFunc(chirps, func(a, b database.Chirp) int {
+			if a.CreatedAt.Compare(b.CreatedAt) == -1 {
+				return -1
+			}
+			if a.CreatedAt.Compare(b.CreatedAt) == 1 {
+				return 1
+			}
+			return 0
+		})
+	}
+	return chirps
 }
