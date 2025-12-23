@@ -72,7 +72,79 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getSpecificChirp)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
 	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaWebHooks)
+
+	mux.HandleFunc("POST /api/users/test", apiCfg.testNewUser)
+	mux.HandleFunc("POST /api/login/test", apiCfg.testLogin)
+	mux.HandleFunc("/api/login/success", redirectHandler)
 	server.ListenAndServe()
+}
+
+func (cfg *ApiConfig) testNewUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	email := r.FormValue("email")
+	password := r.FormValue("password")
+	fmt.Printf("email: %v\npassword: %v\n", email, password)
+	passHash, err := auth.HashPassword(password)
+	if err != nil {
+		http.Error(w, "invalid password entry", http.StatusBadRequest)
+		return
+	}
+	_, err = cfg.dbQueries.CreateUser(
+		r.Context(),
+		database.CreateUserParams{
+			Email:          email,
+			HashedPassword: passHash,
+		})
+	http.Redirect(w, r, "/app", http.StatusSeeOther)
+}
+
+func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := r.ParseForm()
+	if err != nil {
+		fmt.Printf("failed to parse form: %v", err)
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	email := r.PostFormValue("email")
+
+	user, err := cfg.dbQueries.Login(r.Context(), email)
+	if err != nil {
+		fmt.Printf("failed to login to db: %v\n", err)
+		http.Error(w, "invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	validPass, err := auth.CheckPasswordHash(r.PostFormValue("password"), user.HashedPassword)
+	if validPass == false || err != nil {
+		fmt.Printf("password verification failed. validPass: %v .... err: %v\n", validPass, err)
+		http.Error(w, "invalid email or password", http.StatusUnauthorized)
+		return
+	}
+	http.Redirect(w, r, "/api/login/success", http.StatusSeeOther)
+}
+
+func redirectHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/api/login/success":
+		http.ServeFile(w, r, "login.html")
+	default:
+		http.NotFound(w, r)
+	}
+
 }
 
 func writeJSONResponse(w http.ResponseWriter, statusCode int, payload any) {

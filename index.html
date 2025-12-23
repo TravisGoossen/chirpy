@@ -1,5 +1,22 @@
 <html>
     <body>
         <h1>Welcome to Chirpy</h1>
+        <div name="registration-form-div">
+            <h2>Registration</h2>
+            <form name="registration-form" action="/api/users/test" method="POST">
+                <input type="email" name="email" placeholder="Enter email" required />
+                <input type="password" name="password" placeholder="Enter password" required />
+                <input type="submit" name="registration-submit" />
+            </form>
+        </div>
+        <br>
+        <div name="login-form-div">
+            <h2>Login</h2>
+            <form name="login-form" action="/api/login/test" method="POST">
+                <input type="email" name="email" placeholder="Enter email" required />
+                <input type="password" name="password" placeholder="Enter password" required/>
+                <input type="submit" name="login-submit" />
+            </form>
+        </div>
     </body>
 </html>
