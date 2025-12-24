@@ -85,26 +85,49 @@ func (cfg *ApiConfig) testNewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+	type reqBody struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	type user struct {
+		Id            string `json:"id"`
+		Created_at    string `json:"created_at"`
+		Updated_at    string `json:"updated_at"`
+		Email         string `json:"email"`
+		Is_chirpy_red bool   `json:"is_chirpy_red"`
+	}
+	var reqData reqBody
+
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&reqData); err != nil {
+		http.Error(w, "failed to decode body", http.StatusInternalServerError)
 		return
 	}
 
-	email := r.FormValue("email")
-	password := r.FormValue("password")
-	fmt.Printf("email: %v\npassword: %v\n", email, password)
-	passHash, err := auth.HashPassword(password)
+	passHash, err := auth.HashPassword(reqData.Password)
 	if err != nil {
 		http.Error(w, "invalid password entry", http.StatusBadRequest)
 		return
 	}
-	_, err = cfg.dbQueries.CreateUser(
+	dbUser, err := cfg.dbQueries.CreateUser(
 		r.Context(),
 		database.CreateUserParams{
-			Email:          email,
+			Email:          reqData.Email,
 			HashedPassword: passHash,
 		})
-	http.Redirect(w, r, "/app", http.StatusSeeOther)
+	if err != nil {
+		log.Printf("failed to create new user: %v", err)
+		http.Error(w, "email already in use", http.StatusConflict)
+		return
+	}
+	respData := user{
+		Id:            dbUser.ID.String(),
+		Created_at:    dbUser.CreatedAt.String(),
+		Updated_at:    dbUser.UpdatedAt.String(),
+		Email:         dbUser.Email,
+		Is_chirpy_red: dbUser.IsChirpyRed,
+	}
+	writeJSONResponse(w, http.StatusCreated, respData)
 }
 
 func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
@@ -113,28 +136,6 @@ func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseForm()
-	if err != nil {
-		fmt.Printf("failed to parse form: %v", err)
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-	email := r.PostFormValue("email")
-
-	user, err := cfg.dbQueries.Login(r.Context(), email)
-	if err != nil {
-		fmt.Printf("failed to login to db: %v\n", err)
-		http.Error(w, "invalid email or password", http.StatusUnauthorized)
-		return
-	}
-
-	validPass, err := auth.CheckPasswordHash(r.PostFormValue("password"), user.HashedPassword)
-	if validPass == false || err != nil {
-		fmt.Printf("password verification failed. validPass: %v .... err: %v\n", validPass, err)
-		http.Error(w, "invalid email or password", http.StatusUnauthorized)
-		return
-	}
-	http.Redirect(w, r, "/api/login/success", http.StatusSeeOther)
 }
 
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
@@ -146,6 +147,8 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
+
+/// Code below here is from the original chirpy
 
 func writeJSONResponse(w http.ResponseWriter, statusCode int, payload any) {
 	payloadJSON, err := json.Marshal(payload)
@@ -231,7 +234,8 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create user. error: %v", err), http.StatusInternalServerError)
+		log.Printf("HashPassword failed: %v", err)
+		http.Error(w, "invalid password provided", http.StatusInternalServerError)
 		return
 	}
 
@@ -243,7 +247,8 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 		},
 	)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create user. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to create user: %v", err)
+		http.Error(w, "email already in use", http.StatusConflict)
 		return
 	}
 
