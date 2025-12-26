@@ -33,7 +33,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string) (string, error) {
 	claims := jwt.RegisteredClaims{
 		Issuer:    "chirpy",
 		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(3600) * time.Second)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(900) * time.Second)),
 		Subject:   userID.String(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -88,4 +88,40 @@ func GetAPIKey(headers http.Header) (string, error) {
 	key := headers.Get("Authorization")
 	rawKey, _ := strings.CutPrefix(key, "ApiKey ")
 	return rawKey, nil
+}
+
+func SetAuthCookies(w http.ResponseWriter, accessToken, refreshToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   15 * 60,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/api/refresh",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+}
+
+func GetAccessTokenCookie(r *http.Request) (string, error) {
+	cookie, err := r.Cookie("access_token")
+	if err != nil {
+		return "", err
+	}
+	return cookie.Value, nil
+}
+
+func GetRefreshTokenCookie(r *http.Request) (string, error) {
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		return "", err
+	}
+	return cookie.Value, nil
 }

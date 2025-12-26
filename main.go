@@ -150,6 +150,8 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 
 /// Code below here is from the original chirpy
 
+// Write a simple JSON response with a content-type of application/json.
+// If writing custom headers, do not use this
 func writeJSONResponse(w http.ResponseWriter, statusCode int, payload any) {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -300,7 +302,7 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
 		return
 	}
-	token, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret)
+	accessToken, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
 		return
@@ -308,24 +310,36 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 
 	refreshToken, err := auth.MakeRefreshToken()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create refresh token. error: %v", err), http.StatusInternalServerError)
+		log.Printf("Login failed. MakeRefreshToken error: %v", err)
+		http.Error(w, "login failed. Please try again", http.StatusInternalServerError)
+		return
 	}
 	cfg.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
 		Token:     refreshToken,
 		UserID:    dbUser.ID,
-		ExpiresAt: time.Now().Add(1440 * time.Hour),
+		ExpiresAt: time.Now().Add(720 * time.Hour),
 	})
 
 	responseUser := responseBody{
-		ID:           dbUser.ID,
-		CreatedAt:    dbUser.CreatedAt,
-		UpdatedAt:    dbUser.UpdatedAt,
-		Email:        dbUser.Email,
-		IsChirpyRed:  dbUser.IsChirpyRed,
-		Token:        token,
-		RefreshToken: refreshToken,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
+		//Token:        accessToken,    // No longer sending tokens in body, only in cookies below
+		//RefreshToken: refreshToken,
 	}
-	writeJSONResponse(w, http.StatusOK, responseUser)
+
+	userJSON, err := json.Marshal(responseUser)
+	if err != nil {
+		log.Printf("Login failed. Could not marshal responseUser error: %v", err)
+		http.Error(w, "login failed. Please try again", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	auth.SetAuthCookies(w, accessToken, refreshToken)
+	w.WriteHeader(http.StatusOK)
+	w.Write(userJSON)
 }
 
 func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +396,33 @@ func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http
 }
 
 func (cfg *ApiConfig) refreshEndpoint(w http.ResponseWriter, r *http.Request) {
-	type responseBody struct {
+	refreshToken, err := auth.GetRefreshTokenCookie(r)
+	if err != nil {
+		http.Error(w, "Unathorized. Please log in again.", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), refreshToken)
+	if err != nil {
+		log.Printf("refreshEndpoint failed. Couldn't get user from refresh token. Error: %v", err)
+		http.Error(w, "Unathorized. Please log in again.", http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(userID, cfg.JWTSecret)
+	if err != nil {
+		log.Printf("refreshEndpoint failed. Couldn't make new JWT. Error: %v", err)
+		http.Error(w, "Unathorized. Please log in again.", http.StatusUnauthorized)
+		return
+	}
+
+	auth.SetAuthCookies(w, accessToken, refreshToken)
+	w.WriteHeader(http.StatusOK)
+
+	// Code above is only for if the refresh token is sent as a cookie
+
+	// Code below is only for if the refresh token is sent as a Bearer token in the header.
+	/* type responseBody struct {
 		Token string `json:"token"`
 	}
 	refToken, err := auth.GetBearerToken(r.Header)
@@ -403,7 +443,7 @@ func (cfg *ApiConfig) refreshEndpoint(w http.ResponseWriter, r *http.Request) {
 	response := responseBody{
 		Token: accToken,
 	}
-	writeJSONResponse(w, http.StatusOK, response)
+	writeJSONResponse(w, http.StatusOK, response) */
 }
 
 func (cfg *ApiConfig) revokeRefreshToken(w http.ResponseWriter, r *http.Request) {
