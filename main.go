@@ -46,6 +46,11 @@ func main() {
 	if err != nil {
 		fmt.Printf("Failed to connect to DB. err: %v", err)
 	}
+	err = db.Ping()
+	if err != nil {
+		fmt.Printf("db connection invalid: %v", err)
+		panic("db connection invalid")
+	}
 
 	apiCfg := ApiConfig{
 		dbQueries:   database.New(db),
@@ -271,13 +276,11 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	type responseBody struct {
-		ID           uuid.UUID `json:"id"`
-		CreatedAt    time.Time `json:"created_at"`
-		UpdatedAt    time.Time `json:"updated_at"`
-		Email        string    `json:"email"`
-		IsChirpyRed  bool      `json:"is_chirpy_red"`
-		Token        string    `json:"token"`
-		RefreshToken string    `json:"refresh_token"`
+		ID          uuid.UUID `json:"id"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Email       string    `json:"email"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
