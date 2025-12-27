@@ -63,7 +63,7 @@ func main() {
 		Addr:    ":8080",
 		Handler: mux,
 	}
-	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./pages")))))
 	mux.HandleFunc("GET /api/healthz", ReadinessEndpoint)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.displayMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
@@ -143,10 +143,11 @@ func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// This function may not be useful if the best way to handle redirects will be in the front end javascript
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/login/success":
-		http.ServeFile(w, r, "login.html")
+		http.ServeFile(w, r, "pages/login.html")
 	default:
 		http.NotFound(w, r)
 	}
@@ -281,6 +282,7 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt   time.Time `json:"updated_at"`
 		Email       string    `json:"email"`
 		IsChirpyRed bool      `json:"is_chirpy_red"`
+		Redirect    string    `json:"redirect,omitempty"`
 	}
 	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
@@ -329,6 +331,7 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   dbUser.UpdatedAt,
 		Email:       dbUser.Email,
 		IsChirpyRed: dbUser.IsChirpyRed,
+		Redirect:    "/api/login/success",
 		//Token:        accessToken,    // No longer sending tokens in body, only in cookies below
 		//RefreshToken: refreshToken,
 	}

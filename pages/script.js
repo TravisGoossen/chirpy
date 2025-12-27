@@ -24,7 +24,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
         email: document.getElementById("login-email").value,
         password: document.getElementById("login-password").value,
     }
-
+    	
     const response = await fetch("/api/login", {
         method: "POST",
         headers: {
@@ -33,5 +33,9 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
         body: JSON.stringify(payload)
     });
 
-    console.log(response)
-})
+    const result = await response.json();
+
+    if (result.redirect) {
+        window.location.href = result.redirect;
+    }
+});
