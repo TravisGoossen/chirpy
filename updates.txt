@@ -1,0 +1,4 @@
+Things to update:
+- Add some cleanup for refresh tokens. Currently every login means a new refresh token is added to the database
+    - Maybe limit them to like 5 per user, then start deleting them if higher.
+    

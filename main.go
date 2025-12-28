@@ -80,7 +80,7 @@ func main() {
 
 	mux.HandleFunc("POST /api/users/test", apiCfg.testNewUser)
 	mux.HandleFunc("POST /api/login/test", apiCfg.testLogin)
-	mux.HandleFunc("/api/login/success", redirectHandler)
+	// mux.HandleFunc("/api/login/success", redirectHandler)
 	server.ListenAndServe()
 }
 
@@ -143,7 +143,7 @@ func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// This function may not be useful if the best way to handle redirects will be in the front end javascript
+/* // This function may not be useful if the best way to handle redirects will be in the front end javascript
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/login/success":
@@ -152,7 +152,7 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}
 
-}
+} */
 
 /// Code below here is from the original chirpy
 
@@ -288,7 +288,8 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to login. error: %v", err)
+		http.Error(w, "Failed to login. Try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -299,7 +300,8 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	}
 	match, err := auth.CheckPasswordHash(req.Password, dbUser.HashedPassword)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to login. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to login. error: %v", err)
+		http.Error(w, "Failed to login. Try again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -309,14 +311,15 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	}
 	accessToken, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to create jwt token. error: %v", err)
+		http.Error(w, "Failed to login. Try again.", http.StatusInternalServerError)
 		return
 	}
 
 	refreshToken, err := auth.MakeRefreshToken()
 	if err != nil {
-		log.Printf("Login failed. MakeRefreshToken error: %v", err)
-		http.Error(w, "login failed. Please try again", http.StatusInternalServerError)
+		log.Printf("failed to login. MakeRefreshToken error: %v", err)
+		http.Error(w, "Failed to login. Try again.", http.StatusInternalServerError)
 		return
 	}
 	cfg.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
@@ -331,15 +334,15 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   dbUser.UpdatedAt,
 		Email:       dbUser.Email,
 		IsChirpyRed: dbUser.IsChirpyRed,
-		Redirect:    "/api/login/success",
+		Redirect:    "/app/login.html",
 		//Token:        accessToken,    // No longer sending tokens in body, only in cookies below
 		//RefreshToken: refreshToken,
 	}
 
 	userJSON, err := json.Marshal(responseUser)
 	if err != nil {
-		log.Printf("Login failed. Could not marshal responseUser error: %v", err)
-		http.Error(w, "login failed. Please try again", http.StatusInternalServerError)
+		log.Printf("failed to login. Could not marshal responseUser error: %v", err)
+		http.Error(w, "Failed to login. Try again", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
