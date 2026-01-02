@@ -9,7 +9,7 @@ document
         };
 
         try {
-            const response = await fetch("/api/users/test", {
+            const response = await fetch("/api/users", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

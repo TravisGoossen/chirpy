@@ -78,83 +78,8 @@ func main() {
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
 	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaWebHooks)
 
-	mux.HandleFunc("POST /api/users/test", apiCfg.testNewUser)
-	mux.HandleFunc("POST /api/login/test", apiCfg.testLogin)
-	// mux.HandleFunc("/api/login/success", redirectHandler)
 	server.ListenAndServe()
 }
-
-func (cfg *ApiConfig) testNewUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	type reqBody struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	type user struct {
-		Id            string `json:"id"`
-		Created_at    string `json:"created_at"`
-		Updated_at    string `json:"updated_at"`
-		Email         string `json:"email"`
-		Is_chirpy_red bool   `json:"is_chirpy_red"`
-	}
-	var reqData reqBody
-
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&reqData); err != nil {
-		http.Error(w, "failed to decode body", http.StatusInternalServerError)
-		return
-	}
-
-	passHash, err := auth.HashPassword(reqData.Password)
-	if err != nil {
-		http.Error(w, "invalid password entry", http.StatusBadRequest)
-		return
-	}
-	dbUser, err := cfg.dbQueries.CreateUser(
-		r.Context(),
-		database.CreateUserParams{
-			Email:          reqData.Email,
-			HashedPassword: passHash,
-		})
-	if err != nil {
-		log.Printf("failed to create new user: %v", err)
-		http.Error(w, "email already in use", http.StatusConflict)
-		return
-	}
-	respData := user{
-		Id:            dbUser.ID.String(),
-		Created_at:    dbUser.CreatedAt.String(),
-		Updated_at:    dbUser.UpdatedAt.String(),
-		Email:         dbUser.Email,
-		Is_chirpy_red: dbUser.IsChirpyRed,
-	}
-	writeJSONResponse(w, http.StatusCreated, respData)
-}
-
-func (cfg *ApiConfig) testLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-}
-
-/* // This function may not be useful if the best way to handle redirects will be in the front end javascript
-func redirectHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/api/login/success":
-		http.ServeFile(w, r, "pages/login.html")
-	default:
-		http.NotFound(w, r)
-	}
-
-} */
-
-/// Code below here is from the original chirpy
 
 // Write a simple JSON response with a content-type of application/json.
 // If writing custom headers, do not use this
@@ -224,51 +149,54 @@ func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Request) {
-	type User struct {
-		ID          uuid.UUID `json:"id,omitempty"`
-		CreatedAt   time.Time `json:"created_at,omitempty"`
-		UpdatedAt   time.Time `json:"updated_at,omitempty"`
-		Email       string    `json:"email"`
-		Password    string    `json:"password,omitempty"`
-		IsChirpyRed bool      `json:"is_chirpy_red"`
-	}
-	req := User{}
-	decoder := json.NewDecoder(r.Body)
-	decoder.Decode(&req)
-
-	if req.Password == "" {
-		http.Error(w, "No password provided", http.StatusBadRequest)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	hash, err := auth.HashPassword(req.Password)
+
+	type reqBody struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	type user struct {
+		Id            string `json:"id"`
+		Created_at    string `json:"created_at"`
+		Updated_at    string `json:"updated_at"`
+		Email         string `json:"email"`
+		Is_chirpy_red bool   `json:"is_chirpy_red"`
+	}
+	var reqData reqBody
+
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&reqData); err != nil {
+		http.Error(w, "failed to decode body", http.StatusInternalServerError)
+		return
+	}
+
+	passHash, err := auth.HashPassword(reqData.Password)
 	if err != nil {
-		log.Printf("HashPassword failed: %v", err)
 		http.Error(w, "invalid password entry", http.StatusBadRequest)
 		return
 	}
-
 	dbUser, err := cfg.dbQueries.CreateUser(
 		r.Context(),
 		database.CreateUserParams{
-			Email:          req.Email,
-			HashedPassword: hash,
-		},
-	)
+			Email:          reqData.Email,
+			HashedPassword: passHash,
+		})
 	if err != nil {
-		log.Printf("failed to create user: %v", err)
+		log.Printf("failed to create new user: %v", err)
 		http.Error(w, "email already in use", http.StatusConflict)
 		return
 	}
-
-	user := User{
-		ID:          dbUser.ID,
-		CreatedAt:   dbUser.CreatedAt,
-		UpdatedAt:   dbUser.UpdatedAt,
-		Email:       dbUser.Email,
-		IsChirpyRed: dbUser.IsChirpyRed,
+	respData := user{
+		Id:            dbUser.ID.String(),
+		Created_at:    dbUser.CreatedAt.String(),
+		Updated_at:    dbUser.UpdatedAt.String(),
+		Email:         dbUser.Email,
+		Is_chirpy_red: dbUser.IsChirpyRed,
 	}
-
-	writeJSONResponse(w, http.StatusCreated, user)
+	writeJSONResponse(w, http.StatusCreated, respData)
 }
 
 func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
