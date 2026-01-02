@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -63,7 +64,10 @@ func main() {
 		Addr:    ":8080",
 		Handler: mux,
 	}
-	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./pages")))))
+	// mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./pages")))))
+
+	mux.HandleFunc("/app/", apiCfg.appHandler)
+	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
 	mux.HandleFunc("GET /api/healthz", ReadinessEndpoint)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.displayMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetAllUsers)
@@ -127,12 +131,36 @@ func validateChirp(chirp string) (string, error) {
 	return chirp, nil
 }
 
-func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+func (cfg *ApiConfig) appHandler(w http.ResponseWriter, r *http.Request) {
+	templ, err := template.ParseFiles("templates/index.html")
+	if err != nil {
+		log.Printf("Could not load /app/: %v", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+	data := struct {
+		Title    string
+		SignedIn bool
+	}{
+		Title:    "Trav's House",
+		SignedIn: true,
+	}
+
+	err = templ.Execute(w, data)
+	if err != nil {
+		log.Printf("Could not load /app/: %v", err)
+		http.Error(w, "Render error", http.StatusInternalServerError)
+		return
+	}
+
+}
+
+/* func (cfg *ApiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
 		next.ServeHTTP(w, r)
 	})
-}
+} */
 
 func (cfg *ApiConfig) displayMetrics(w http.ResponseWriter, r *http.Request) {
 	currentHits := cfg.fileserverHits.Load()

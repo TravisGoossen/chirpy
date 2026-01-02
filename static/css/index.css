@@ -1,0 +1,25 @@
+.top-flex-container {
+    display: flex;
+    justify-content: space-evenly;
+    padding: 10px;
+    margin: 50px;
+}
+
+.top-flex-container div {
+    padding: 15px;
+    border: 2px solid black;
+}
+
+.bottom-flex-container {
+    display: flex;
+    justify-content: center;
+}
+
+body {
+    background-color: rgb(148, 141, 141);
+}
+
+h1 {
+    text-align: center;
+    color: rgb(56, 10, 10);
+}

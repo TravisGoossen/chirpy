@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link rel="stylesheet" href="/static/css/index.css" />
+    </head>
+    <body>
+        <h1>Welcome to {{ .Title }}</h1>
+        <div class="top-flex-container">
+            <div name="registration-form-div">
+                <h2>Registration</h2>
+                <form
+                    id="registration-form"
+                    name="registration-form"
+                    action="/api/users/test"
+                    method="POST"
+                >
+                    <input
+                        type="email"
+                        id="registration-email"
+                        name="email"
+                        placeholder="Enter email"
+                        required
+                    />
+                    <input
+                        type="password"
+                        id="registration-password"
+                        name="password"
+                        placeholder="Enter password"
+                        required
+                    />
+                    <input
+                        type="submit"
+                        id="registration-submit"
+                        name="registration-submit"
+                    />
+                </form>
+            </div>
+            <br />
+            <div name="login-form-div">
+                <h2>Login</h2>
+                <form
+                    id="login-form"
+                    name="login-form"
+                    action="/api/login"
+                    method="POST"
+                >
+                    <input
+                        type="email"
+                        id="login-email"
+                        name="email"
+                        placeholder="Enter email"
+                        required
+                    />
+                    <input
+                        type="password"
+                        id="login-password"
+                        name="password"
+                        placeholder="Enter password"
+                        required
+                    />
+                    <input
+                        type="submit"
+                        id="login-submit"
+                        name="login-submit"
+                    />
+                </form>
+            </div>
+        </div>
+        <div class="bottom-flex-container">
+            <p>
+                {{ if .SignedIn }}Signed in as ___{{ else }}Not signed in{{
+                end}}
+            </p>
+        </div>
+        <script src="/app/scripts/index.js"></script>
+    </body>
+</html>
