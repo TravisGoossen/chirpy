@@ -237,13 +237,13 @@ func (cfg *ApiConfig) createNewUserEndpoint(w http.ResponseWriter, r *http.Reque
 	decoder.Decode(&req)
 
 	if req.Password == "" {
-		http.Error(w, "failed to create user. no password provided.", http.StatusBadRequest)
+		http.Error(w, "No password provided", http.StatusBadRequest)
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		log.Printf("HashPassword failed: %v", err)
-		http.Error(w, "invalid password provided", http.StatusInternalServerError)
+		http.Error(w, "invalid password entry", http.StatusBadRequest)
 		return
 	}
 
@@ -282,7 +282,6 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt   time.Time `json:"updated_at"`
 		Email       string    `json:"email"`
 		IsChirpyRed bool      `json:"is_chirpy_red"`
-		Redirect    string    `json:"redirect,omitempty"`
 	}
 	req := requestBody{}
 	decoder := json.NewDecoder(r.Body)
@@ -300,11 +299,10 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	}
 	match, err := auth.CheckPasswordHash(req.Password, dbUser.HashedPassword)
 	if err != nil {
-		log.Printf("failed to login. error: %v", err)
+		log.Printf("CheckPasswordHash failed: %v", err)
 		http.Error(w, "Failed to login. Try again.", http.StatusInternalServerError)
 		return
 	}
-
 	if !match {
 		http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
 		return
@@ -334,9 +332,6 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   dbUser.UpdatedAt,
 		Email:       dbUser.Email,
 		IsChirpyRed: dbUser.IsChirpyRed,
-		Redirect:    "/app/login.html",
-		//Token:        accessToken,    // No longer sending tokens in body, only in cookies below
-		//RefreshToken: refreshToken,
 	}
 
 	userJSON, err := json.Marshal(responseUser)
@@ -346,7 +341,8 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	auth.SetAuthCookies(w, accessToken, refreshToken)
+	auth.SetAccessTokenCookie(w, accessToken)
+	auth.SetRefreshTokenCookie(w, refreshToken)
 	w.WriteHeader(http.StatusOK)
 	w.Write(userJSON)
 }
@@ -364,22 +360,28 @@ func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&reqUser)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to decode request body. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to decode request body. error: %v", err)
+		http.Error(w, "Failed to update info. Try again.", http.StatusInternalServerError)
 		return
 	}
-	token, err := auth.GetBearerToken(r.Header)
+
+	token, err := auth.GetAccessTokenCookie(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to retrieve token. error: %v", err), http.StatusUnauthorized)
+		log.Printf("failed to GetAccessTokenCookie: %v", err)
+		http.Error(w, "Unathorized", http.StatusUnauthorized)
 		return
 	}
+
 	userID, err := auth.ValidateJWT(token, cfg.JWTSecret)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("jwt validation failed. error: %v", err), http.StatusUnauthorized)
+		log.Printf("jwt validation failed. error: %v", err)
+		http.Error(w, "Unathorized", http.StatusUnauthorized)
 		return
 	}
 	hashedPass, err := auth.HashPassword(reqUser.Password)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to has password. error: %v", err), http.StatusBadGateway)
+		log.Printf("failed to update info: HashPassword: %v", err)
+		http.Error(w, "Invalid password entry", http.StatusBadRequest)
 		return
 	}
 	cfg.dbQueries.UpdateEmailPassword(
@@ -391,7 +393,8 @@ func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http
 		})
 	dbUser, err := cfg.dbQueries.GetUserInfo(r.Context(), userID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get user info. error: %v", err), http.StatusInternalServerError)
+		log.Printf("failed to get user info. error: %v", err)
+		http.Error(w, "Request failed. Try again.", http.StatusInternalServerError)
 		return
 	}
 	responseUser := User{
@@ -425,34 +428,9 @@ func (cfg *ApiConfig) refreshEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auth.SetAuthCookies(w, accessToken, refreshToken)
-	w.WriteHeader(http.StatusOK)
-
-	// Code above is only for if the refresh token is sent as a cookie
-
-	// Code below is only for if the refresh token is sent as a Bearer token in the header.
-	/* type responseBody struct {
-		Token string `json:"token"`
-	}
-	refToken, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get bearer token. error: %v", err), http.StatusBadRequest)
-		return
-	}
-	userID, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), refToken)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get refresh token. error: %v", err), http.StatusUnauthorized)
-		return
-	}
-	accToken, err := auth.MakeJWT(userID, cfg.JWTSecret)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create jwt token. error: %v", err), http.StatusInternalServerError)
-		return
-	}
-	response := responseBody{
-		Token: accToken,
-	}
-	writeJSONResponse(w, http.StatusOK, response) */
+	auth.SetAccessTokenCookie(w, accessToken)
+	auth.SetRefreshTokenCookie(w, refreshToken)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (cfg *ApiConfig) revokeRefreshToken(w http.ResponseWriter, r *http.Request) {

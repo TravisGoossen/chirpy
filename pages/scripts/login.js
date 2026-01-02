@@ -5,19 +5,52 @@ document
 
         const payload = {
             email: document.getElementById("update-info-email").value,
-            newPassword: document.getElementById("update-info-pw").value,
+            password: document.getElementById("update-info-pw").value,
         };
-        console.log(payload);
-        const response = await fetch("/api/users", {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        });
 
-        // add a try/catch to this, change the endpoint in go to use cookies instead of header
-        // probably can delete the test endpoints and alter the previous endpoints to use cookies instead of headers
+        let response;
+        try {
+            response = await fetch("/api/users", {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+        } catch (err) {
+            console.log(`Failed to update info: ${err}`);
+            return;
+        }
 
-        // console.log("info updated");
+        if (response.status === 401) {
+            let refreshResponse;
+            try {
+                refreshResponse = await fetch("/api/refresh", {
+                    method: "POST",
+                });
+            } catch (err) {
+                console.log(`Failed to used refresh token: ${err}`);
+                return;
+            }
+
+            try {
+                response = await fetch("/api/users", {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(payload),
+                });
+            } catch (err) {
+                console.log(`Failed to update info AGAIN: ${err}`);
+                return;
+            }
+        }
+
+        if (response.status === 401) {
+            console.log(`unathorized again, logout now`);
+            return;
+        }
+
+        console.log(`Info updated with: ${payload.email}: ${payload.password}`);
     });

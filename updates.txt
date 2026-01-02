@@ -1,4 +1,6 @@
 Things to update:
 - Add some cleanup for refresh tokens. Currently every login means a new refresh token is added to the database
     - Maybe limit them to like 5 per user, then start deleting them if higher.
-    
+- Change redirects to be decoupled. All redirects should be handled independently in the front-end. Remove it from the api response
+
+

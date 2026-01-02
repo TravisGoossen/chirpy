@@ -22,7 +22,6 @@ document
                 console.log(errorText);
                 return;
             }
-
             console.log(
                 `Registered with: ${payload.email}: ${payload.password}`
             );
@@ -56,10 +55,9 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
         }
 
         const result = await response.json();
-        console.log(`Logged in with: ${payload.email}: ${payload.password}`);
-        if (result.redirect) {
-            window.location.href = result.redirect;
-        }
+        console.log(`Logged in as: ${payload.email}`);
+
+        window.location.href = "/app/login.html";
     } catch (err) {
         console.log(`login failed: ${err}`);
         return;

@@ -90,16 +90,7 @@ func GetAPIKey(headers http.Header) (string, error) {
 	return rawKey, nil
 }
 
-func SetAuthCookies(w http.ResponseWriter, accessToken, refreshToken string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
-		Value:    accessToken,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   15 * 60,
-	})
-
+func SetRefreshTokenCookie(w http.ResponseWriter, refreshToken string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
@@ -107,6 +98,17 @@ func SetAuthCookies(w http.ResponseWriter, accessToken, refreshToken string) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   30 * 24 * 60 * 60,
+	})
+}
+
+func SetAccessTokenCookie(w http.ResponseWriter, accessToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   15 * 60,
 	})
 }
 
