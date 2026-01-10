@@ -56,8 +56,8 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
         const result = await response.json();
         console.log(`Logged in as: ${payload.email}`);
-
-        window.location.href = "/app/login.html";
+        location.reload();
+        // window.location.href = "/app/login.html";
     } catch (err) {
         console.log(`login failed: ${err}`);
         return;

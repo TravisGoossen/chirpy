@@ -1,6 +1,9 @@
 Things to update:
 - Add some cleanup for refresh tokens. Currently every login means a new refresh token is added to the database
     - Maybe limit them to like 5 per user, then start deleting them if higher.
-- Change redirects to be decoupled. All redirects should be handled independently in the front-end. Remove it from the api response
+- Figure out the better organization of auth code. Currently main page has some auth logic in it because
+  I couldn't avoid package dependecy loops
 
-
+Currently:
+- Changed home page to check for auth and update automatically when you log in
+- 

@@ -68,10 +68,10 @@
         </div>
         <div class="bottom-flex-container">
             <p>
-                {{ if .SignedIn }}Signed in as ___{{ else }}Not signed in{{
-                end}}
+                {{ if .SignedIn }}Signed in as {{ .UserEmail }}{{ else }}Not
+                signed in{{ end}}
             </p>
         </div>
-        <script src="/app/scripts/index.js"></script>
+        <script src="/static/scripts/index.js"></script>
     </body>
 </html>

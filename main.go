@@ -30,6 +30,16 @@ type chirpResponse struct {
 	User_id    string `json:"user_id"`
 }
 
+type UserInfo struct {
+	ID    uuid.UUID
+	Email string
+}
+
+type AuthContext struct {
+	SignedIn bool
+	User     *UserInfo
+}
+
 type ApiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
@@ -138,12 +148,22 @@ func (cfg *ApiConfig) appHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return
 	}
+
 	data := struct {
-		Title    string
-		SignedIn bool
+		Title     string
+		SignedIn  bool
+		UserEmail string
 	}{
-		Title:    "Trav's House",
-		SignedIn: true,
+		Title:    "Chirpy",
+		SignedIn: false,
+	}
+
+	context, err := cfg.getAuthContext(r)
+	if err != nil {
+		log.Print(err)
+	} else {
+		data.SignedIn = context.SignedIn
+		data.UserEmail = context.User.Email
 	}
 
 	err = templ.Execute(w, data)
@@ -661,4 +681,33 @@ func sortChirps(chirps []database.Chirp, order string) []database.Chirp {
 		})
 	}
 	return chirps
+}
+
+func (cfg *ApiConfig) getAuthContext(r *http.Request) (AuthContext, error) {
+	context := AuthContext{
+		SignedIn: false,
+	}
+
+	accessToken, err := auth.GetAccessTokenCookie(r)
+	if err != nil {
+		return context, fmt.Errorf("Could not get access token: %v", err)
+	}
+	userId, err := auth.ValidateJWT(accessToken, cfg.JWTSecret)
+	if err != nil {
+		return context, fmt.Errorf("Invalid access token: %v", err)
+	}
+	dbUser, err := cfg.dbQueries.GetUserInfo(r.Context(), userId)
+	if err != nil {
+		return context, fmt.Errorf("Failed to get user info from: %v", err)
+	}
+
+	User := UserInfo{
+		ID:    dbUser.ID,
+		Email: dbUser.Email,
+	}
+
+	context.SignedIn = true
+	context.User = &User
+
+	return context, nil
 }
