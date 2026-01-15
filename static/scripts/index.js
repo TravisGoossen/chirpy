@@ -1,6 +1,7 @@
-document
-    .getElementById("registration-form")
-    .addEventListener("submit", async (e) => {
+const regForm = document.getElementById("registration-form");
+
+if (regForm) {
+    regForm.addEventListener("submit", async (e) => {
         e.preventDefault();
 
         const payload = {
@@ -30,36 +31,63 @@ document
             return;
         }
     });
+}
 
-document.getElementById("login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
+const loginForm = document.getElementById("login-form");
 
-    const payload = {
-        email: document.getElementById("login-email").value,
-        password: document.getElementById("login-password").value,
-    };
+if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
 
-    try {
-        const response = await fetch("/api/login", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        });
+        const payload = {
+            email: document.getElementById("login-email").value,
+            password: document.getElementById("login-password").value,
+        };
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.log(errorText);
+        try {
+            const response = await fetch("/api/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(errorText);
+                return;
+            }
+
+            const result = await response.json();
+            console.log(`Logged in as: ${payload.email}`);
+            location.reload();
+            // window.location.href = "/app/login.html";
+        } catch (err) {
+            console.log(`login failed: ${err}`);
             return;
         }
+    });
+}
 
-        const result = await response.json();
-        console.log(`Logged in as: ${payload.email}`);
-        location.reload();
-        // window.location.href = "/app/login.html";
-    } catch (err) {
-        console.log(`login failed: ${err}`);
-        return;
-    }
-});
+const logoutButton = document.getElementById("logout-button");
+
+if (logoutButton) {
+    logoutButton.addEventListener("click", async (e) => {
+        try {
+            const response = await fetch("/api/logout", {
+                method: "POST",
+            });
+
+            if (!response.ok) {
+                console.log(err);
+                return;
+            }
+
+            location.reload();
+        } catch {
+            console.log(err);
+            return;
+        }
+    });
+}

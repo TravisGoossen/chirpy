@@ -1,18 +1,33 @@
-.top-flex-container {
+.logged-out-block {
     display: flex;
     justify-content: space-evenly;
     padding: 10px;
     margin: 50px;
 }
 
-.top-flex-container div {
+.logged-out-block div {
     padding: 15px;
     border: 2px solid black;
 }
 
-.bottom-flex-container {
+.signed-in-block {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+}
+
+.logout-button {
+    border: none;
+    color: white;
+    background-color: #04aa6d;
+    padding: 15px 32px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin: 4px 2px;
+    cursor: pointer;
+    width: 100px;
 }
 
 body {

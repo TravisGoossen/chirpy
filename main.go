@@ -84,6 +84,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.createNewUserEndpoint)
 	mux.HandleFunc("PUT /api/users", apiCfg.updateEmailPasswordEndpoint)
 	mux.HandleFunc("POST /api/login", apiCfg.login)
+	mux.HandleFunc("POST /api/logout", apiCfg.logout)
 	mux.HandleFunc("POST /api/refresh", apiCfg.refreshEndpoint)
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeRefreshToken)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createNewChirpEndpoint)
@@ -321,6 +322,11 @@ func (cfg *ApiConfig) login(w http.ResponseWriter, r *http.Request) {
 	auth.SetRefreshTokenCookie(w, refreshToken)
 	w.WriteHeader(http.StatusOK)
 	w.Write(userJSON)
+}
+
+func (cfg *ApiConfig) logout(w http.ResponseWriter, r *http.Request) {
+	auth.DeleteCookies(w)
+	writeJSONResponse(w, http.StatusNoContent, nil)
 }
 
 func (cfg *ApiConfig) updateEmailPasswordEndpoint(w http.ResponseWriter, r *http.Request) {
